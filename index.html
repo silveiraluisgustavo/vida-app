@@ -422,35 +422,43 @@ curCalDate=todayStr();
 // ══════════════════════════════════════════
 // LIVE SYNC (Google Apps Script)
 // ══════════════════════════════════════════
-async function syncAll(){
-  if(!SCRIPT_URL){
-    setSyncState(['cal-sync','ag-sync','fin-sync'],'idle','offline');
-    toast('Configure a URL do Apps Script nas configurações');
-    useFallback();
-    return;
-  }
+function syncAll(){
+  if(!SCRIPT_URL){ useFallback(); return; }
   setSyncState(['cal-sync','ag-sync','fin-sync'],'loading','sync…');
-  try{
-    const r=await fetch(SCRIPT_URL+'?action=all',{mode:'cors'});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json();
-    if(d.calendar){ calData=d.calendar; }
-    if(d.finance){
-      finData=d.finance;
-      if(finData.summary && finData.summary[5]){
-        const j=finData.summary[5];
-        $('q-fin-sub').textContent='Jun: '+R(j.sal);
-      }
-    }
-    setSyncState(['cal-sync','ag-sync','fin-sync'],'idle','atualizado');
-    toast('Dados atualizados ✓');
-  }catch(err){
+
+  // JSONP — único método que funciona com Apps Script sem CORS
+  const cb = 'vidaCB_' + Date.now();
+  const script = document.createElement('script');
+  const timeout = setTimeout(() => {
+    script.remove();
+    delete window[cb];
     setSyncState(['cal-sync','ag-sync','fin-sync'],'error','erro');
     useFallback();
-  }
-  renderHomeCal();
-  renderAgenda();
-  renderFin();
+    renderHomeCal(); renderAgenda(); renderFin();
+  }, 10000);
+
+  window[cb] = function(d) {
+    clearTimeout(timeout);
+    script.remove();
+    delete window[cb];
+    try {
+      if(d.calendar) calData = d.calendar;
+      if(d.finance){
+        finData = d.finance;
+        if(finData.summary && finData.summary[5]){
+          $('q-fin-sub').textContent = 'Jun: ' + R(finData.summary[5].sal);
+        }
+      }
+      setSyncState(['cal-sync','ag-sync','fin-sync'],'idle','ao vivo ✓');
+      toast('Calendar + Sheets atualizados ✓');
+    } catch(e) {
+      setSyncState(['cal-sync','ag-sync','fin-sync'],'error','erro');
+    }
+    renderHomeCal(); renderAgenda(); renderFin();
+  };
+
+  script.src = SCRIPT_URL + '?action=all&callback=' + cb;
+  document.head.appendChild(script);
 }
 
 function useFallback(){
